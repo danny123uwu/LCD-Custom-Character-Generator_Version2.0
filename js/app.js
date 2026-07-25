@@ -54,10 +54,10 @@ function getCurrentData() {
 
 // --- Generar código Arduino ---
 function reloadCode() {
-    ArduinoTemplate = "#include <LiquidCrystal.h>\n\n";
+    ArduinoTemplate = "#include &lt;LiquidCrystal.h&gt;\n\n";
     ArduinoTemplate += "LiquidCrystal lcd(12, 11, 5, 4, 3, 2); // RS, E, D4, D5, D6, D7\n\n";
 
-    ArduinoI2CTemplate = "#include <Wire.h>\n#include <LiquidCrystal_I2C.h>\n\n";
+    ArduinoI2CTemplate = "#include &lt;Wire.h&gt;\n#include &lt;LiquidCrystal_I2C.h&gt;\n\n";
     ArduinoI2CTemplate += "// Set the LCD address to 0x27 for PCF8574 or 0x3F for PCF8574A\n";
     ArduinoI2CTemplate += "LiquidCrystal_I2C lcd(0x3F, 16, 2);\n\n";
 
@@ -71,7 +71,18 @@ function reloadCode() {
         ArduinoI2CTemplate += charDef;
     }
 
-    var setup = "void setup() {\n  lcd.begin(16, 2);\n  lcd.createChar(0, customChar0);\n  lcd.home();\n  lcd.write(0);\n}\n\nvoid loop() { }";
+    var setup = "void setup() {\n  lcd.begin(16, 2);\n";
+    for (var s = 0; s < numCharacters; s++) {
+        setup += "  lcd.createChar(" + s + ", customChar" + s + ");\n";
+    }
+    setup += "  lcd.home();\n";
+    for (var s2 = 0; s2 < numCharacters; s2++) {
+        var row = Math.floor(s2 / 4);
+        var col = s2 % 4;
+        setup += "  lcd.setCursor(" + col + ", " + row + ");\n";
+        setup += "  lcd.write((byte)" + s2 + ");\n";
+    }
+    setup += "}\n\nvoid loop() { }";
     ArduinoTemplate += setup;
     ArduinoI2CTemplate += setup;
 }
@@ -271,6 +282,18 @@ $(document).ready(function () {
     $("#mirrorDown").click(function () { mirrorVertical("down"); });
     $("#mirrorUp").click(function () { mirrorVertical("up"); });
     $("#mirrorBoth").click(function () { mirrorHorizontal(); });
+
+    $("#copyCode").click(function () {
+        var codeText = document.getElementById('code-box').textContent;
+        navigator.clipboard.writeText(codeText).then(function () {
+            var btn = document.getElementById('copyCode');
+            var original = btn.textContent;
+            btn.textContent = '✅ Copiado';
+            setTimeout(function () { btn.textContent = original; }, 1500);
+        }).catch(function () {
+            alert('No se pudo copiar automáticamente. Selecciona el código manualmente.');
+        });
+    });
 
     // --- Cambio de color ---
     $("[name='color']").change(function () {

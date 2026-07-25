@@ -13,6 +13,8 @@
     <h1>LCD Custom Character Generator</h1>
     <h2>Diseña hasta 8 caracteres personalizados</h2>
 
+    
+
     <!-- VISTA PREVIA EN LCD (arriba) -->
     <div class="lcd-preview-container">
         <h3>Vista previa en LCD (16x2)</h3>
@@ -63,10 +65,13 @@
                 <label><input type="radio" name="datatype" value="bin" checked> Binario</label>
                 <label><input type="radio" name="datatype" value="hex"> Hex</label>
             </div>
-            <div class="inline">
-                <strong>Código Arduino</strong>
-                <pre><code class="language-cpp" id="code-box"></code></pre>
-            </div>
+         <div class="inline">
+    <strong>Código Arduino</strong>
+    <button type="button" id="copyCode" style="margin-left:10px;">📋 Copiar código</button>
+</div>
+<pre><code class="language-cpp" id="code-box"></code></pre>
+
+            
         </div>
     </div>
 
