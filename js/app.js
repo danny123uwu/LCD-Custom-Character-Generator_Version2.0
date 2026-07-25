@@ -1,199 +1,307 @@
-// ===== Configuración =====
-const NUM_CHARS = 8;        // 8 caracteres (4 arriba, 4 abajo)
-const COLS = 4;            // columnas en la interfaz (4)
-const ROWS = 2;            // filas (2)
-const PIXEL_ROWS = 8;      // altura del carácter en píxeles
-const PIXEL_COLS = 5;      // ancho del carácter
+var ArduinoTemplate = "";
+var ArduinoI2CTemplate = "";
+var numCharacters = 8;
+var selectedChar = 0;
+var isDrawing = false;
+var drawMode = true;
 
-// Estado: datos de cada carácter (8x8x5 booleano)
-let charData = Array(NUM_CHARS).fill().map(() => 
-    Array(PIXEL_ROWS).fill().map(() => Array(PIXEL_COLS).fill(false))
-);
-let activeCharIndex = 0;   // carácter seleccionado para editar
-
-// ===== DOM references =====
-const gridContainer = document.getElementById('lcd-grid');
-const previewContainer = document.getElementById('lcd-preview');
-const codeOutput = document.getElementById('arduino-code');
-
-// ===== Renderizado de la cuadrícula de edición =====
-function renderGrid() {
-    gridContainer.innerHTML = '';
-    for (let i = 0; i < NUM_CHARS; i++) {
-        const charDiv = document.createElement('div');
-        charDiv.className = 'character-editor' + (i === activeCharIndex ? ' active' : '');
-        charDiv.dataset.index = i;
-
-        const label = document.createElement('div');
-        label.className = 'label';
-        label.textContent = `Carácter ${i}`;
-        charDiv.appendChild(label);
-
-        const grid = document.createElement('div');
-        grid.className = 'pixel-grid';
-        for (let row = 0; row < PIXEL_ROWS; row++) {
-            for (let col = 0; col < PIXEL_COLS; col++) {
-                const px = document.createElement('div');
-                px.className = 'pixel' + (charData[i][row][col] ? ' on' : '');
-                px.dataset.charIndex = i;
-                px.dataset.row = row;
-                px.dataset.col = col;
-                px.addEventListener('click', onPixelClick);
-                grid.appendChild(px);
-            }
+// --- Conversión binario a hex ---
+function binaryToHex(s) {
+    var i, k, part, accum, ret = '';
+    for (i = s.length - 1; i >= 3; i -= 4) {
+        part = s.substr(i + 1 - 4, 4);
+        accum = 0;
+        for (k = 0; k < 4; k += 1) {
+            if (part[k] !== '0' && part[k] !== '1') return { valid: false };
+            accum = accum * 2 + parseInt(part[k], 10);
         }
-        charDiv.appendChild(grid);
+        ret = (accum >= 10 ? String.fromCharCode(accum - 10 + 'A'.charCodeAt(0)) : String(accum)) + ret;
+    }
+    if (i >= 0) {
+        accum = 0;
+        for (k = 0; k <= i; k += 1) {
+            if (s[k] !== '0' && s[k] !== '1') return { valid: false };
+            accum = accum * 2 + parseInt(s[k], 10);
+        }
+        ret = String(accum) + ret;
+    }
+    return { valid: true, result: ret };
+}
 
-        // Al hacer clic en el editor, seleccionarlo
-        charDiv.addEventListener('click', function(e) {
-            // si el clic fue en un píxel, no cambiamos selección (ya se maneja)
-            if (e.target.classList.contains('pixel')) return;
-            const idx = parseInt(this.dataset.index);
-            selectCharacter(idx);
-        });
+// --- Helper: obtener un box-char por índice (evita clases numéricas inválidas en CSS) ---
+function getCharBox(index) {
+    return document.querySelector('.box-char[data-index="' + index + '"]');
+}
 
-        gridContainer.appendChild(charDiv);
+// --- Obtener datos de todos los caracteres ---
+function getCurrentData() {
+    var Data = [];
+    var myChars = document.getElementsByClassName("box-char");
+    for (var c = 0; c < myChars.length; c++) {
+        var col = myChars[c].getElementsByClassName("col");
+        Data[c] = [];
+        for (var x = 0; x < col.length; x++) {
+            var pix = col[x].getElementsByClassName("dot-px");
+            var BinStr = "";
+            for (var y = 0; y < pix.length; y++) {
+                BinStr += pix[y].classList.contains("high") ? "1" : "0";
+            }
+            Data[c][x] = BinStr;
+        }
+    }
+    return Data;
+}
+
+// --- Generar código Arduino ---
+function reloadCode() {
+    ArduinoTemplate = "#include <LiquidCrystal.h>\n\n";
+    ArduinoTemplate += "LiquidCrystal lcd(12, 11, 5, 4, 3, 2); // RS, E, D4, D5, D6, D7\n\n";
+
+    ArduinoI2CTemplate = "#include <Wire.h>\n#include <LiquidCrystal_I2C.h>\n\n";
+    ArduinoI2CTemplate += "// Set the LCD address to 0x27 for PCF8574 or 0x3F for PCF8574A\n";
+    ArduinoI2CTemplate += "LiquidCrystal_I2C lcd(0x3F, 16, 2);\n\n";
+
+    for (var i = 0; i < numCharacters; i++) {
+        var charDef = "byte customChar" + i + "[] = {\n";
+        for (var row = 0; row < 8; row++) {
+            charDef += "  {DataX" + i + row + "}" + (row < 7 ? ",\n" : "\n");
+        }
+        charDef += "};\n";
+        ArduinoTemplate += charDef;
+        ArduinoI2CTemplate += charDef;
+    }
+
+    var setup = "void setup() {\n  lcd.begin(16, 2);\n  lcd.createChar(0, customChar0);\n  lcd.home();\n  lcd.write(0);\n}\n\nvoid loop() { }";
+    ArduinoTemplate += setup;
+    ArduinoI2CTemplate += setup;
+}
+
+// --- Actualizar código y vista previa ---
+function reloadData() {
+    var type = $("[name='datatype']:checked").val() || "bin";
+    var interfacing = $("[name='interfacing']:checked").val() || "parallel";
+
+    var Data = getCurrentData();
+    var html = (interfacing === "parallel") ? ArduinoTemplate : ArduinoI2CTemplate;
+
+    for (var x = 0; x < 8; x++) {
+        for (var i = 0; i < 8; i++) {
+            var binStr = (Data[x] && Data[x][i]) || "00000";
+            var val = (type === "hex") ? "0x" + binaryToHex(binStr).result : "B" + binStr;
+            html = html.replace(new RegExp("\\{DataX" + x + i + "\\}", "g"), val);
+        }
+    }
+
+    $("#code-box").html(html);
+    Prism.highlightAll();
+    renderPreview();
+    updateSelection();
+}
+
+// --- Vista previa en LCD (2 filas de 4) ---
+function renderPreview() {
+    var preview = document.getElementById('lcd-preview');
+    if (!preview) return;
+    preview.innerHTML = '';
+
+    var Data = getCurrentData();
+    var cols = 4;
+    var total = Math.min(numCharacters, 8);
+
+    for (var row = 0; row < 2; row++) {
+        var rowDiv = document.createElement('div');
+        rowDiv.className = 'lcd-row';
+
+        for (var col = 0; col < cols; col++) {
+            var idx = row * cols + col;
+            var charDiv = document.createElement('div');
+            charDiv.className = 'lcd-char';
+            charDiv.dataset.index = idx;
+
+            var isActive = idx < total && Data[idx];
+            if (!isActive) charDiv.classList.add('lcd-char-static');
+
+            // r = fila del carácter (0-7), coincide con "x"/.col del editor
+            // b = bit dentro de la fila (0-4), coincide con "y"/.dot-px del editor
+            for (var r = 0; r < 8; r++) {
+                var pxRow = document.createElement('div');
+                pxRow.className = 'lcd-row-px';
+                for (var b = 0; b < 5; b++) {
+                    var px = document.createElement('div');
+                    var bit = isActive && Data[idx][r] && Data[idx][r].charAt(b) === '1';
+                    px.className = 'lcd-px ' + (bit ? 'on' : 'off');
+                    pxRow.appendChild(px);
+                }
+                charDiv.appendChild(pxRow);
+            }
+
+            if (isActive) {
+                if (idx === selectedChar) charDiv.classList.add('selected');
+                charDiv.addEventListener('click', function () {
+                    selectCharacter(parseInt(this.dataset.index, 10));
+                });
+            }
+            rowDiv.appendChild(charDiv);
+        }
+        preview.appendChild(rowDiv);
     }
 }
 
-// ===== Manejo de clic en píxel =====
-function onPixelClick(e) {
-    const px = e.currentTarget;
-    const charIdx = parseInt(px.dataset.charIndex);
-    const row = parseInt(px.dataset.row);
-    const col = parseInt(px.dataset.col);
-    // Alternar estado
-    charData[charIdx][row][col] = !charData[charIdx][row][col];
-    // Actualizar visual
-    px.classList.toggle('on');
-    // Actualizar preview y código
-    updatePreview();
-    updateCode();
-}
-
-// ===== Seleccionar un carácter (resaltar) =====
+// --- Seleccionar carácter (resaltar en editor y vista previa) ---
 function selectCharacter(index) {
-    activeCharIndex = index;
-    // Quitar active de todos
-    document.querySelectorAll('.character-editor').forEach(el => el.classList.remove('active'));
-    // Poner active al seleccionado
-    const editors = document.querySelectorAll('.character-editor');
-    if (editors[index]) editors[index].classList.add('active');
-    // No necesitamos re-renderizar, solo resaltar
-}
-
-// ===== Actualizar vista previa =====
-function updatePreview() {
-    previewContainer.innerHTML = '';
-    // Mostrar solo los primeros 8 caracteres en una fila (puedes expandir a 16)
-    const maxShow = Math.min(NUM_CHARS, 8);
-    for (let i = 0; i < maxShow; i++) {
-        const charDiv = document.createElement('div');
-        charDiv.className = 'preview-char';
-        for (let row = 0; row < PIXEL_ROWS; row++) {
-            for (let col = 0; col < PIXEL_COLS; col++) {
-                const px = document.createElement('div');
-                px.className = 'preview-pixel' + (charData[i][row][col] ? ' on' : '');
-                charDiv.appendChild(px);
-            }
-        }
-        previewContainer.appendChild(charDiv);
-    }
-}
-
-// ===== Generar código Arduino =====
-function updateCode() {
-    // Generar para cada carácter
-    let code = '#include <LiquidCrystal.h>\n\n';
-    code += 'LiquidCrystal lcd(12, 11, 5, 4, 3, 2);\n\n';
-
-    for (let i = 0; i < NUM_CHARS; i++) {
-        code += `byte customChar${i}[8] = {\n`;
-        for (let row = 0; row < PIXEL_ROWS; row++) {
-            let bin = '';
-            for (let col = 0; col < PIXEL_COLS; col++) {
-                bin += charData[i][row][col] ? '1' : '0';
-            }
-            // Convertir binario a número (base 2) y luego a hexadecimal o decimal
-            const val = parseInt(bin, 2);
-            code += `  B${bin}${row < PIXEL_ROWS-1 ? ',' : ''}\n`;
-        }
-        code += '};\n\n';
-    }
-
-    code += 'void setup() {\n';
-    code += '  lcd.begin(16, 2);\n';
-    for (let i = 0; i < NUM_CHARS; i++) {
-        code += `  lcd.createChar(${i}, customChar${i});\n`;
-    }
-    code += '  lcd.home();\n';
-    // Mostrar los primeros 8 caracteres en la primera fila
-    for (let i = 0; i < NUM_CHARS && i < 16; i++) {
-        code += `  lcd.write(${i});\n`;
-    }
-    code += '}\n\n';
-    code += 'void loop() {}\n';
-
-    codeOutput.textContent = code;
-}
-
-// ===== Acciones de botones =====
-function clearAll() {
-    for (let i = 0; i < NUM_CHARS; i++) {
-        for (let r = 0; r < PIXEL_ROWS; r++) {
-            for (let c = 0; c < PIXEL_COLS; c++) {
-                charData[i][r][c] = false;
-            }
-        }
-    }
-    // Re-renderizar toda la cuadrícula (o actualizar píxeles)
-    renderGrid();
-    updatePreview();
-    updateCode();
-}
-
-function invertAll() {
-    for (let i = 0; i < NUM_CHARS; i++) {
-        for (let r = 0; r < PIXEL_ROWS; r++) {
-            for (let c = 0; c < PIXEL_COLS; c++) {
-                charData[i][r][c] = !charData[i][r][c];
-            }
-        }
-    }
-    renderGrid();
-    updatePreview();
-    updateCode();
-}
-
-function resetAll() {
-    // Reiniciar a un patrón predeterminado (opcional)
-    clearAll();
-}
-
-// ===== Inicialización =====
-document.addEventListener('DOMContentLoaded', function() {
-    renderGrid();
-    updatePreview();
-    updateCode();
-
-    // Botones
-    document.getElementById('clearAll').addEventListener('click', clearAll);
-    document.getElementById('invertAll').addEventListener('click', invertAll);
-    document.getElementById('resetAll').addEventListener('click', resetAll);
-
-    // Copiar código
-    document.getElementById('copyCode').addEventListener('click', function() {
-        const code = document.getElementById('arduino-code');
-        navigator.clipboard.writeText(code.textContent).then(() => {
-            alert('Código copiado al portapapeles');
-        }).catch(() => {
-            // Fallback
-            const range = document.createRange();
-            range.selectNode(code);
-            window.getSelection().removeAllRanges();
-            window.getSelection().addRange(range);
-            document.execCommand('copy');
-            alert('Código copiado');
-        });
+    if (index < 0 || index >= numCharacters) return;
+    selectedChar = index;
+    document.querySelectorAll('.box-char').forEach(function (b) {
+        b.classList.remove('box-char-selected');
     });
+    var box = getCharBox(index);
+    if (box) box.classList.add('box-char-selected');
+    renderPreview();
+}
+
+function updateSelection() {
+    selectCharacter(selectedChar);
+}
+
+// --- Construir los 8 box-char ---
+function buildCharGrid() {
+    var row = document.getElementById('charRow');
+    row.innerHTML = '';
+    for (var i = 0; i < 8; i++) {
+        var box = document.createElement('div');
+        box.className = 'box-char green';
+        box.dataset.index = i;
+        for (var x = 0; x < 8; x++) {
+            var col = document.createElement('div');
+            col.className = 'col';
+            for (var y = 0; y < 5; y++) {
+                var dot = document.createElement('div');
+                dot.className = 'dot-px';
+                dot.dataset.x = x;
+                dot.dataset.y = y;
+                col.appendChild(dot);
+            }
+            box.appendChild(col);
+        }
+        row.appendChild(box);
+    }
+}
+
+// --- Espejar el carácter seleccionado ---
+function getSelectedCols() {
+    var box = getCharBox(selectedChar);
+    return box ? box.getElementsByClassName("col") : null;
+}
+
+function mirrorVertical(direction) {
+    var cols = getSelectedCols();
+    if (!cols) return;
+    var range = direction === "down" ? [0, 1, 2, 3] : [4, 5, 6, 7];
+    range.forEach(function (srcIdx) {
+        var dstIdx = 7 - srcIdx;
+        var srcPix = cols[srcIdx].getElementsByClassName("dot-px");
+        var dstPix = cols[dstIdx].getElementsByClassName("dot-px");
+        for (var y = 0; y < srcPix.length; y++) {
+            dstPix[y].classList.toggle("high", srcPix[y].classList.contains("high"));
+        }
+    });
+    reloadData();
+}
+
+function mirrorHorizontal() {
+    var cols = getSelectedCols();
+    if (!cols) return;
+    for (var x = 0; x < cols.length; x++) {
+        var pix = cols[x].getElementsByClassName("dot-px");
+        for (var y = 0; y < 2; y++) {
+            var mirrorY = pix.length - 1 - y;
+            pix[mirrorY].classList.toggle("high", pix[y].classList.contains("high"));
+        }
+    }
+    reloadData();
+}
+
+// --- Modo oscuro / claro ---
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('lcd-theme', theme);
+    var btn = document.getElementById('themeToggle');
+    if (btn) btn.textContent = theme === 'dark' ? '☀️ Modo claro' : '🌙 Modo oscuro';
+}
+
+// --- Inicialización ---
+$(document).ready(function () {
+    var savedTheme = localStorage.getItem('lcd-theme') || 'light';
+    applyTheme(savedTheme);
+    $("#themeToggle").click(function () {
+        var current = document.documentElement.getAttribute('data-theme');
+        applyTheme(current === 'dark' ? 'light' : 'dark');
+    });
+
+    buildCharGrid();
+
+    // --- Dibujo de píxeles (click + arrastre) ---
+    function togglePixel(el) {
+        var $el = $(el);
+        var already = $el.hasClass('high');
+        if (drawMode && !already) { $el.addClass('high'); reloadData(); }
+        else if (!drawMode && already) { $el.removeClass('high'); reloadData(); }
+    }
+
+    $(document).on('mousedown', '.dot-px', function (e) {
+        e.preventDefault();
+        drawMode = !$(this).hasClass('high');
+        isDrawing = true;
+        togglePixel(this);
+    });
+    $(document).on('mouseenter', '.dot-px', function () {
+        if (isDrawing) togglePixel(this);
+    });
+    $(document).on('mouseup', function () { isDrawing = false; });
+
+    // --- Botones ---
+    $("#clear, #reset").click(function () {
+        $(".dot-px").removeClass("high");
+        reloadData();
+    });
+    $("#invert").click(function () {
+        $(".dot-px").toggleClass("high");
+        reloadData();
+    });
+    $("#mirrorDown").click(function () { mirrorVertical("down"); });
+    $("#mirrorUp").click(function () { mirrorVertical("up"); });
+    $("#mirrorBoth").click(function () { mirrorHorizontal(); });
+
+    // --- Cambio de color ---
+    $("[name='color']").change(function () {
+        $(".box-char").removeClass("green blue").addClass(this.value);
+    });
+
+    // --- Cambio de estructura (mostrar/ocultar caracteres) ---
+    $("#structure").change(function () {
+        var val = parseInt(this.value, 10);
+        numCharacters = val;
+        document.querySelectorAll('.box-char').forEach(function (b) {
+            var idx = parseInt(b.dataset.index, 10);
+            b.classList.toggle('box-char-invis', idx >= val);
+        });
+        if (selectedChar >= val) selectCharacter(0);
+        reloadCode();
+        reloadData();
+    });
+
+    // --- Cambio de tipo de dato / interfaz ---
+    $("[name='datatype'], [name='interfacing']").change(reloadData);
+
+    // --- Seleccionar carácter al hacer clic en su área (editor) ---
+    $(document).on('click', '.box-char', function (e) {
+        if ($(e.target).hasClass('dot-px')) return;
+        var idx = parseInt(this.dataset.index, 10);
+        if (idx < numCharacters) selectCharacter(idx);
+    });
+
+    // --- Inicializar ---
+    reloadCode();
+    reloadData();
+    selectCharacter(0);
 });

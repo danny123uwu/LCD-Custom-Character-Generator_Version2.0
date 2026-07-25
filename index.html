@@ -2,37 +2,79 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>LCD Custom Character Generator - Mejorado</title>
+    <title>LCD Custom Character Generator</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/prism.css" />
+    <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
-    <div class="container">
-        <h1>LCD Character Generator</h1>
-        <p>Haz clic en los píxeles para encender/apagar. Edita hasta 8 caracteres simultáneamente.</p>
+<article class="content">
+   <button type="button" id="themeToggle">🌙 Modo oscuro</button>
+    <h1>LCD Custom Character Generator</h1>
+    <h2>Diseña hasta 8 caracteres personalizados</h2>
 
-        <div id="lcd-grid">
-            <!-- Generado por JavaScript -->
+    <!-- VISTA PREVIA EN LCD (arriba) -->
+    <div class="lcd-preview-container">
+        <h3>Vista previa en LCD (16x2)</h3>
+        <div id="lcd-preview">
+            <!-- Se genera con JavaScript -->
+        </div>
+        <p class="hint">Haz clic en un carácter de la previsualización para seleccionarlo y editarlo.</p>
+    </div>
+
+    <div class="main-box">
+        <div class="box-char-pic">
+            <!-- EDITOR: 8 caracteres en horizontal (fila única) -->
+            <div class="row row1x8" id="charRow">
+                <!-- Los 8 box-char se generan con JavaScript -->
+            </div>
+<div class="btn-group">
+    <button type="button" id="clear">Limpiar</button>
+    <button type="button" id="invert">Invertir</button>
+    <button type="button" id="reset">Resetear</button>
+    <button type="button" id="mirrorDown">Duplicar ↓</button>
+    <button type="button" id="mirrorUp">Duplicar ↑</button>
+    <button type="button" id="mirrorBoth">Duplicar ↔</button>
+</div>
         </div>
 
-        <div class="controls">
-            <button id="clearAll">Limpiar todo</button>
-            <button id="invertAll">Invertir todo</button>
-            <button id="resetAll">Resetear todo</button>
-        </div>
-
-        <div class="preview">
-            <h3>Vista previa en LCD</h3>
-            <div id="lcd-preview"></div>
-        </div>
-
-        <div class="code-output">
-            <h3>Código Arduino generado</h3>
-            <pre><code id="arduino-code"></code></pre>
-            <button id="copyCode">Copiar código</button>
+        <div class="config">
+            <div class="inline">
+                <strong>Estructura</strong>
+                <select id="structure">
+                    <option value="8">8 caracteres (1x8)</option>
+                    <option value="4">4 caracteres (1x4)</option>
+                    <option value="2">2 caracteres (1x2)</option>
+                    <option value="1">1 carácter</option>
+                </select>
+            </div>
+            <div class="inline">
+                <strong>Color</strong>
+                <label><input type="radio" name="color" value="green" checked> Verde</label>
+                <label><input type="radio" name="color" value="blue"> Azul</label>
+            </div>
+            <div class="inline">
+                <strong>Interfaz</strong>
+                <label><input type="radio" name="interfacing" value="parallel" checked> Paralelo</label>
+                <label><input type="radio" name="interfacing" value="i2c"> I2C</label>
+            </div>
+            <div class="inline">
+                <strong>Dato</strong>
+                <label><input type="radio" name="datatype" value="bin" checked> Binario</label>
+                <label><input type="radio" name="datatype" value="hex"> Hex</label>
+            </div>
+            <div class="inline">
+                <strong>Código Arduino</strong>
+                <pre><code class="language-cpp" id="code-box"></code></pre>
+            </div>
         </div>
     </div>
 
-    <script src="js/app.js"></script>
+    <footer>Herramienta mejorada - Basada en el trabajo de IOXhop</footer>
+</article>
+
+<script src="js/jquery-1.11.3.min.js"></script>
+<script src="js/prism.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>
